@@ -17,6 +17,22 @@ Investigate Prompt:
 
 注意: 不要更改我的文件, 请将调研结果放在对话框中即可. 
 
+**Hypothesis 1**
+
+Workaround / fix是否是game oriented, 取决于submodule所处的调用链的层级. 越和游戏直接相关的submodule, 越可能需要有per-game workaround, 越靠近操作系统, 比如指令模拟等里游戏的调用链较远的submodule, per-game workaround越少, 解决其他问题的workaround / fix越多
+
+**Hypothesis 2**
+
+不同的submodule, pre-game的fix / workaround的方式是不同的. 有的是用一个config统一管理, 有的是硬编码, 可能还有一些我没有列举到的形式。
+
+**Hypothesis 3**
+
+虽然管理方式不同, 但是workaround的修复逻辑或许类似, 都是改设置选项一类的.
+
+**Hypothesis 4**
+
+per-game workaround的管理方式可能和修改方式有关, 修改方式又可能和调用链的层级有关.
+
 ### DXVK
 
 config file address:
@@ -58,6 +74,8 @@ RTX 2080、2070、2060
 DXVK 是所有 DirectX 游戏的必经渲染翻译层,要复刻几十年充满未定义行为的 D3D 语义,还要替游戏抹平 GPU 厂商差异,暴露面极大;而 dxvk-nvapi 只是少数现代游戏才用的、N 卡专属的信息/功能辅助 API,不碰渲染主流程,出错方式少、使用者也少。所以前者有 254 条、后者只有约 6 条,差距是由二者在系统中的角色本质决定的。
 
 ### FEX
+
+**为ARM系统设计的x86模拟器**
 
 FEX 是一个用户态的 x86 / x86-64 指令集模拟器(binary translator),让原本只能在 Intel/AMD 处理器上运行的 x86 程序,能在 ARM64(AArch64)等非 x86 架构的 Linux/Windows 上运行。
 
@@ -146,3 +164,162 @@ Kaldi 是一个 C++ 语音识别(ASR, Automatic Speech Recognition)工具包.
 虽然 kaldi 引擎本身没有按游戏匹配的机制,但在它上游的 Wine 胶水层(windows.media.speech unixlib)里,存在硬编码按 SteamAppId 匹配的 per-game workaround,而且全部是为 Phasmophobia(SteamAppId = 739630) 准备的。这与 NOTES.md 里 dxvk-nvapi 的「散落在代码里、用 exe/appid 硬编码 if 判断」属于同一种 pattern(而非 DXVK 那种集中式正则 profile 表)。
 
 
+### libsoup
+
+libsoup 是 GNOME (早期的 SteamOS（基于 Debian 系统）默认搭载了 GNOME 桌面环境。用户在使用桌面模式时，看到的就是 GNOME) 生态的 HTTP 客户端/服务端库(基于 GObject + glib 主循环)。
+
+**2) 有没有 pre-game workaround(按游戏匹配的配置)** 没有
+
+**3) 其他任何形式的 workaround(非 game-oriented)**
+
+有,但都是「兼容第三方服务器/构建环境的 bug 绕过」,不是运行时开关、也不分游戏。 两类:
+
+A. 源码里针对「坏服务器」的协议级 workaround
+
+B. Proton/gstreamer 侧针对「构建与加载环境」的 workaround(patch 形式)
+
+**4) 任何 form 的 code fix 的记录**
+
+记录非常多、非常详细,libsoup 是一个持续维护、安全敏感的网络库。证据来自 libsoup/NEWS 和子模块 git log.
+
+**调用链位置**: 媒体管线最底层网络传输,仅 web-scheme 媒体时经 winegstreamer → uridecodebin → souphttpsrc → gstsouploader → libsoup 被激活
+
+
+
+### lsteamclient
+
+### make
+
+### media
+
+media 不在 .gitmodules 里,它不是子模块,而是 Proton 主仓库自带的一个资产目录 (media 目录是 Proton media-converter(媒体转码器,GStreamer 插件名 protonmediaconverter) 的"空白占位媒体"资产, 即media-converter 在"无法解码 / 缓存未命中"时顶上去的空白占位媒体资产(占位视频 + 占位音频),外加一个生成占位音频的小工具。).
+
+**有没有 pre-game workaround —— 有**
+
+位置在启动器 proton 第 1541–1554 行,机制和 winegstreamer/dxvk-nvapi 一样是"按 Steam AppID 硬编码 if 判断",通过 getenv("SteamGameId") 比对:
+
+```python
+        if os.environ.get("PROTON_MEDIACONV_NO_VIDEO",
+            "1" if os.environ.get("SteamGameId", 0) in (
+                "283640", # Salt and Sanctuary
+                "455490", # Don't Die Dateless, Dummy!
+                "787810", # Rogue Heroes: Ruins of Tasos
+                "1199570", # Rogue Heroes: Ruins of Tasos Demo
+                "1491460", # Tor Eternum
+                "1588990", # Tor Eternum Demo
+                "1895130", # Darza's Dominion
+            ) else "0") != "0":
+            self.env["MEDIACONV_BLANK_VIDEO_FILE"] = g_proton.media_dir + "blank.mka"
+        else:
+            self.env["MEDIACONV_BLANK_VIDEO_FILE"] = g_proton.media_dir + "blank.mkv"
+```
+对这 7 个 AppID,把"空白视频"从 blank.mkv(含 SMPTE 视频流)替换成 blank.mka(纯音频、无视频流)。
+
+这些游戏(都是 MonoGame 引擎)只有音频文件,引擎拿到一个多出来的视频流就报错。把占位媒体换成无视频流的 blank.mka 就能绕过。
+
+对应 NOTES.md 的分析维度:
+
+- pattern:硬编码 AppID 集合 → 切换占位资产文件(不是 DXVK 那种集中式正则 profile)。
+- bug 根因:占位视频带了游戏不需要的视频流,触发引擎(MonoGame)的校验报错。
+- 解决的 symptom:游戏因"音频文件却收到视频流"而报错/无法播放音频。
+- 可被环境变量覆盖:PROTON_MEDIACONV_NO_VIDEO,用户可手动对任意游戏开启,无需改代码。
+
+**其他形式(非 game-oriented)的 workaround —— 有不少**
+
+这个组件本身就是一个"大型 workaround 机制",此外还有几类非按游戏匹配的运行时开关与 hack.
+
+
+### openfst
+
+### openvr
+
+### OpenXR-SDK
+
+
+### orc
+
+
+### piper
+
+
+### SPIRV-Headers
+
+
+### steam_helper
+
+
+### symstore
+
+
+### vkd3d
+
+
+### vkd3d-proton
+
+
+### vosk-api
+
+
+### vrclient_x64
+
+
+### Vulkan-Headers
+
+
+### wine
+
+
+### wineopenxr
+
+### proton
+第1231行
+hopefully short-lived, app-specific workarounds for Proton bugs
+
+
+## Proton Fix Frameworks
+
+为什么不在Proton中直接改对应的代码:
+
+① 这些修复是针对单个游戏的，不能全局生效。 比如《星际公民》要禁用 dxwebsetup.exe，但别的游戏可能正常需要它。如果直接改 Proton，这个改动会影响所有游戏，可能修好了一个、弄坏了一堆。处方机制能做到"只对 968370 这个游戏生效，不碰别人"。
+
+② Proton 是上游 Valve/社区维护的"干净底座"，不该塞满特例补丁。 Proton 本身追求"通用、干净"。如果把几百个游戏的特殊 workaround 全塞进 Proton 主体代码，Proton 会变得臃肿、难维护，每次升级都可能冲突。把这些特例拆出来放进 umu-protonfixes，Proton 保持干净，处方独立迭代。
+
+③ 很多问题根本不是 Proton 的 bug，而是游戏自己的毛病或外部依赖缺失。 比如"游戏缺 VC++ 运行库""启动器依赖 powershell""反作弊需要单独运行时"——这些不是 Proton 代码能"修"的，而是要往那个游戏的 prefix 里补装东西。改 Proton 源码解决不了。
+
+④ 改了能快速发布、人人可写。 处方就是个小 Python 文件，社区任何人发现某游戏的解法，提一个文件就能贡献，不用动 Proton 这种庞大的 C 代码库、也不用重新编译 Proton。响应速度快得多。
+
+比喻：Proton 是一栋标准化的公寓楼（通用底座）。某一户（某个游戏）漏水，你不会把整栋楼推倒重建，而是派维修工带着对应的工具包（处方）上门，只修那一户。
+
+
+### umu-protonfixes
+
+Link: https://github.com/HozierDdd/umu-protonfixes
+
+### winetricks
+
+Link: https://github.com/HozierDdd/winetricks
+
+通过winetricks安装的组件都不是Wine的组件, 而是Windows相关的组件. 虽然Wine自带了一部分 Windows 系统的开源重新实现。但有很多 Windows 组件，因为是微软闭源、有版权，wine 不能直接打包进去。这些缺失的部分，就靠 winetricks 在运行时去下载微软官方的真品装进 prefix。
+
+### protontricks
+
+Link: https://github.com/HozierDdd/protontricks
+
+### 用户到底靠什么修游戏？四条途径
+
+**途径 1：官方 Proton 自带的修复（自动，无需安装）**
+
+**途径 2：Steam 的内置兼容性配置（自动）**
+
+代码存在 Steam 客户端 + Valve 服务器下发的数据里（如 appinfo.vdf、Steam Play 白名单）
+
+由Valve 的 Steam 团队（独立于 Proton 版本，后台更新）进行维护
+
+发生在这游戏该不该用 Proton？用哪个 Proton 版本？
+
+**途径 3：用户手动修（需要额外安装工具）**
+
+**途径 4：换成 GE-Proton / UMU-Proton（一次安装，后续自动）**
+
+
+## RQ3 方法论 现阶段还非常乱, 没有一个成熟的体系将CR和fix相对应. 现在的首要目标是找到方法论
