@@ -1,0 +1,430 @@
+[require]
+shader model >= 6.5
+mesh-shader
+
+[mesh-shader]
+struct vertex_out
+{
+    float4 position : SV_Position;
+};
+
+    [outputtopology("triangle")]
+    [numthreads(1, 1, 1)]
+void main(out vertices vertex_out verts[4], out indices uint3 indices[2])
+{
+    SetMeshOutputCounts(4, 2);
+
+    verts[0].position = float4(-1.0, -1.0, 0.0, 1.0);
+    verts[1].position = float4(-1.0,  1.0, 0.0, 1.0);
+    verts[2].position = float4( 1.0,  1.0, 0.0, 1.0);
+    verts[3].position = float4( 1.0, -1.0, 0.0, 1.0);
+
+    indices[0] = uint3(0, 1, 3);
+    indices[1] = uint3(1, 2, 3);
+}
+
+[pixel-shader]
+float4 main() : SV_Target
+{
+    return float4(0.0, 1.0, 0.0, 1.0);
+}
+
+[test]
+clear rtv-0 f32(0.0, 0.0, 0.0, 1.0)
+dispatch-mesh 1 1 1
+probe (0, 0, 640, 480) f32(0.0, 1.0, 0.0, 1.0)
+
+% The SetMeshOutputCounts() call that counts is the first active thread (they don't have to give
+% uniform values)
+[mesh-shader]
+struct vertex_out
+{
+    float4 position : SV_Position;
+};
+
+    [outputtopology("triangle")]
+    [numthreads(1, 1, 1)]
+void main(out vertices vertex_out verts[4], out indices uint3 indices[2], uint index : SV_GroupIndex)
+{
+    uint prim_count = 1;
+    if (index == 0)
+        prim_count = 2;
+    SetMeshOutputCounts(4, prim_count);
+
+    verts[0].position = float4(-1.0, -1.0, 0.0, 1.0);
+    verts[1].position = float4(-1.0,  1.0, 0.0, 1.0);
+    verts[2].position = float4( 1.0,  1.0, 0.0, 1.0);
+    verts[3].position = float4( 1.0, -1.0, 0.0, 1.0);
+
+    indices[0] = uint3(0, 1, 3);
+    indices[1] = uint3(1, 2, 3);
+}
+
+[test]
+clear rtv-0 f32(0.0, 0.0, 0.0, 1.0)
+dispatch-mesh 1 1 1
+probe (0, 0, 640, 480) f32(0.0, 1.0, 0.0, 1.0)
+
+[mesh-shader]
+struct vertex_out
+{
+    float4 position : SV_Position;
+};
+
+static const float4 positions[4] =
+{
+    float4(-1.0, -1.0, 0.0, 1.0),
+    float4(-1.0,  1.0, 0.0, 1.0),
+    float4( 1.0,  1.0, 0.0, 1.0),
+    float4( 1.0, -1.0, 0.0, 1.0),
+};
+
+static const uint3 triangles[2] =
+{
+    uint3(0, 1, 3),
+    uint3(1, 2, 3),
+};
+
+    [outputtopology("triangle")]
+    [numthreads(4, 1, 1)]
+void main(out vertices vertex_out verts[4], out indices uint3 indices[2], uint index : SV_GroupIndex)
+{
+    SetMeshOutputCounts(4, 2);
+    verts[index].position = positions[index];
+    if (index < 2)
+        indices[index] = triangles[index];
+}
+
+[test]
+clear rtv-0 f32(0.0, 0.0, 0.0, 1.0)
+dispatch-mesh 1 1 1
+probe (0, 0, 640, 480) f32(0.0, 1.0, 0.0, 1.0)
+
+% Emit each individual position coordinate in a dedicated thread; this is tough
+% for languages like MSL where vertices and primitives have to be emitted at once,
+% not split in individual components.
+[mesh-shader]
+struct vertex_out
+{
+    float4 position : SV_Position;
+};
+
+static const float4 positions[4] =
+{
+    float4(-1.0, -1.0, 0.0, 1.0),
+    float4(-1.0,  1.0, 0.0, 1.0),
+    float4( 1.0,  1.0, 0.0, 1.0),
+    float4( 1.0, -1.0, 0.0, 1.0),
+};
+
+static const uint3 triangles[2] =
+{
+    uint3(0, 1, 3),
+    uint3(1, 2, 3),
+};
+
+    [outputtopology("triangle")]
+    [numthreads(16, 1, 1)]
+void main(out vertices vertex_out verts[4], out indices uint3 indices[2], uint index : SV_GroupIndex)
+{
+    SetMeshOutputCounts(4, 2);
+
+    const uint vertex_idx = index / 4;
+    const uint coord_idx = index % 4;
+    verts[vertex_idx].position[coord_idx] = positions[vertex_idx][coord_idx];
+
+    if (index < 2)
+        indices[index] = triangles[index];
+}
+
+[test]
+clear rtv-0 f32(0.0, 0.0, 0.0, 1.0)
+dispatch-mesh 1 1 1
+probe (0, 0, 640, 480) f32(0.0, 1.0, 0.0, 1.0)
+
+% The signature is matched by semantic, not by register index as in traditional pipelines.
+[mesh-shader]
+struct vertex_out
+{
+    float4 position : SV_Position;
+    float color0 : COLOR0;
+    float color1 : COLOR1;
+};
+
+struct primitive_out
+{
+    float color2 : COLOR2;
+    float color3 : COLOR3;
+};
+
+    [outputtopology("triangle")]
+    [numthreads(1, 1, 1)]
+void main(out vertices vertex_out verts[4], out indices uint3 indices[2],
+        out primitives primitive_out primitives[2])
+{
+    SetMeshOutputCounts(4, 2);
+
+    verts[0].position = float4(-1.0, -1.0, 0.0, 1.0);
+    verts[1].position = float4(-1.0,  1.0, 0.0, 1.0);
+    verts[2].position = float4( 1.0,  1.0, 0.0, 1.0);
+    verts[3].position = float4( 1.0, -1.0, 0.0, 1.0);
+
+    verts[0].color0 = 0.25;
+    verts[0].color1 = 0.5;
+    verts[1].color0 = 0.25;
+    verts[1].color1 = 0.5;
+    verts[2].color0 = 0.25;
+    verts[2].color1 = 0.5;
+    verts[3].color0 = 0.25;
+    verts[3].color1 = 0.5;
+
+    indices[0] = uint3(0, 1, 3);
+    indices[1] = uint3(1, 2, 3);
+
+    primitives[0].color2 = 0.75;
+    primitives[0].color3 = 1.0;
+    primitives[1].color2 = 0.75;
+    primitives[1].color3 = 1.0;
+}
+
+[pixel-shader]
+float4 main(float color3 : COLOR3, float color2 : COLOR2,
+        float color1 : COLOR1, float color0 : COLOR0) : SV_Target
+{
+    return float4(color0, color1, color2, color3);
+}
+
+[test]
+clear rtv-0 f32(0.0, 0.0, 0.0, 0.0)
+dispatch-mesh 1 1 1
+probe (0, 0, 640, 480) f32(0.25, 0.5, 0.75, 1.0)
+
+% Simple passthrough, but the payload must exist and have at least a field anyway.
+[amplification-shader]
+struct payload_data
+{
+    uint x;
+};
+
+groupshared struct payload_data p;
+
+    [numthreads(1, 1, 1)]
+void main() {
+    DispatchMesh(1, 1, 1, p);
+}
+
+[mesh-shader]
+struct payload_data
+{
+    uint x;
+};
+
+struct vertex_out
+{
+    float4 position : SV_Position;
+    float color0 : COLOR0;
+    float color1 : COLOR1;
+};
+
+struct primitive_out
+{
+    float color2 : COLOR2;
+    float color3 : COLOR3;
+};
+
+    [outputtopology("triangle")]
+    [numthreads(1, 1, 1)]
+void main(in payload payload_data p, out vertices vertex_out verts[4],
+        out indices uint3 indices[2], out primitives primitive_out primitives[2])
+{
+    SetMeshOutputCounts(4, 2);
+
+    verts[0].position = float4(-1.0, -1.0, 0.0, 1.0);
+    verts[1].position = float4(-1.0,  1.0, 0.0, 1.0);
+    verts[2].position = float4( 1.0,  1.0, 0.0, 1.0);
+    verts[3].position = float4( 1.0, -1.0, 0.0, 1.0);
+
+    verts[0].color0 = 0.25;
+    verts[0].color1 = 0.5;
+    verts[1].color0 = 0.25;
+    verts[1].color1 = 0.5;
+    verts[2].color0 = 0.25;
+    verts[2].color1 = 0.5;
+    verts[3].color0 = 0.25;
+    verts[3].color1 = 0.5;
+
+    indices[0] = uint3(0, 1, 3);
+    indices[1] = uint3(1, 2, 3);
+
+    primitives[0].color2 = 0.75;
+    primitives[0].color3 = 1.0;
+    primitives[1].color2 = 0.75;
+    primitives[1].color3 = 1.0;
+}
+
+[test]
+clear rtv-0 f32(0.0, 0.0, 0.0, 0.0)
+dispatch-mesh 1 1 1
+probe (0, 0, 640, 480) f32(0.25, 0.5, 0.75, 1.0)
+
+% Pass some actual payload.
+[amplification-shader]
+struct payload_data
+{
+    float color0, color1, color2, color3;
+};
+
+groupshared struct payload_data p;
+
+    [numthreads(1, 1, 1)]
+void main() {
+    p.color0 = 0.25;
+    p.color1 = 0.5;
+    p.color2 = 0.75;
+    p.color3 = 1.0;
+    DispatchMesh(1, 1, 1, p);
+}
+
+[mesh-shader]
+struct payload_data
+{
+    float color0, color1, color2, color3;
+};
+
+struct vertex_out
+{
+    float4 position : SV_Position;
+    float color0 : COLOR0;
+    float color1 : COLOR1;
+};
+
+struct primitive_out
+{
+    float color2 : COLOR2;
+    float color3 : COLOR3;
+};
+
+static const float4 positions[4] =
+{
+    float4(-1.0, -1.0, 0.0, 1.0),
+    float4(-1.0,  1.0, 0.0, 1.0),
+    float4( 1.0,  1.0, 0.0, 1.0),
+    float4( 1.0, -1.0, 0.0, 1.0),
+};
+
+static const uint3 triangles[2] =
+{
+    uint3(0, 1, 3),
+    uint3(1, 2, 3),
+};
+
+    [outputtopology("triangle")]
+    [numthreads(4, 1, 1)]
+void main(in payload payload_data p, out vertices vertex_out verts[4],
+        out indices uint3 indices[2], out primitives primitive_out primitives[2],
+        uint index : SV_GroupIndex)
+{
+    SetMeshOutputCounts(4, 2);
+
+    verts[index].position = positions[index];
+    verts[index].color0 = p.color0;
+    verts[index].color1 = p.color1;
+
+    if (index < 2)
+    {
+        indices[index] = triangles[index];
+        primitives[index].color2 = p.color2;
+        primitives[index].color3 = p.color3;
+    }
+}
+
+[test]
+clear rtv-0 f32(0.0, 0.0, 0.0, 0.0)
+dispatch-mesh 1 1 1
+probe (0, 0, 640, 480) f32(0.25, 0.5, 0.75, 1.0)
+
+% The DispatchMesh() call that counts is from the first active thread; it also
+% implies a groupshared barrier, so all writes on other threads are collected
+% together.
+[amplification-shader]
+struct payload_data
+{
+    float color0, color1, color2, color3;
+};
+
+groupshared struct payload_data p;
+
+    [numthreads(4, 1, 1)]
+void main(uint index : SV_GroupIndex) {
+    switch (index)
+    {
+        case 0: p.color0 = 0.25; break;
+        case 1: p.color1 = 0.5; break;
+        case 2: p.color2 = 0.75; break;
+        case 3: p.color3 = 1.0; break;
+    }
+
+    uint x = 1;
+    if (index == 0)
+        x = 2;
+
+    DispatchMesh(x, 1, 1, p);
+}
+
+[mesh-shader]
+struct payload_data
+{
+    float color0, color1, color2, color3;
+};
+
+struct vertex_out
+{
+    float4 position : SV_Position;
+    float color0 : COLOR0;
+    float color1 : COLOR1;
+};
+
+struct primitive_out
+{
+    float color2 : COLOR2;
+    float color3 : COLOR3;
+};
+
+static const float4 positions[4] =
+{
+    float4(-1.0, -1.0, 0.0, 1.0),
+    float4(-1.0,  1.0, 0.0, 1.0),
+    float4( 1.0,  1.0, 0.0, 1.0),
+    float4( 1.0, -1.0, 0.0, 1.0),
+};
+
+static const uint3 triangles[2] =
+{
+    uint3(0, 1, 3),
+    uint3(1, 2, 3),
+};
+
+    [outputtopology("triangle")]
+    [numthreads(4, 1, 1)]
+void main(in payload payload_data p, out vertices vertex_out verts[4],
+        out indices uint3 indices[2], out primitives primitive_out primitives[2],
+        uint index : SV_GroupIndex, uint3 group_id : SV_GroupID)
+{
+    SetMeshOutputCounts(4, 1);
+
+    verts[index].position = positions[index];
+    verts[index].color0 = p.color0;
+    verts[index].color1 = p.color1;
+
+    if (index == 0)
+    {
+        indices[0] = triangles[group_id.x];
+        primitives[0].color2 = p.color2;
+        primitives[0].color3 = p.color3;
+    }
+}
+
+[test]
+clear rtv-0 f32(0.0, 0.0, 0.0, 0.0)
+dispatch-mesh 1 1 1
+probe (0, 0, 640, 480) f32(0.25, 0.5, 0.75, 1.0)

@@ -1,0 +1,110 @@
+[header]
+test-shader-models (2.0 3.0 4.0 6.0)
+
+% In shader model 2.0, COLOR semantics get clamped to the [0, 1] range when
+% passed from the vertex shader to the pixel shader.
+
+[vertex shader]
+void main(float4 pos : POSITION,
+        out float4 c : COLOR,
+        out float4 out_pos : SV_POSITION)
+{
+    c = float4(-2, 1, 2, -1);
+    out_pos = pos;
+}
+
+[pixel shader]
+float4 main(float4 c : COLOR, float4 pos : SV_POSITION) : sv_target
+{
+    return c / 10;
+}
+
+[test]
+draw quad
+if(sm<3) probe (0, 0) f32(0.0, 0.1, 0.1, 0.0)
+if(sm>=3) probe (0, 0) f32(-0.2, 0.1, 0.2, -0.1)
+
+% This also happens for COLOR1.
+[vertex shader]
+void main(float4 pos : POSITION,
+        out float4 c[2] : COLOR,
+        out float4 out_pos : SV_POSITION)
+{
+    c[0] = 0;
+    c[1] = float4(-2, 1, 2, -1);
+    out_pos = pos;
+}
+
+[pixel shader]
+float4 main(float4 c[2] : COLOR, float4 pos : SV_POSITION) : sv_target
+{
+    return c[1] / 10;
+}
+
+[test]
+todo(msl & sm>=6) draw quad
+if(sm<3) probe (0, 0) f32(0.0, 0.1, 0.1, 0.0)
+if(sm>=3) probe (0, 0) f32(-0.2, 0.1, 0.2, -0.1)
+
+% The clamping doesn't happen for TEXCOORD.
+[vertex shader]
+void main(float4 pos : POSITION,
+        out float4 t : TEXCOORD,
+        out float4 out_pos : SV_POSITION)
+{
+    t = float4(-2, 1, 2, -1);
+    out_pos = pos;
+}
+
+[pixel shader]
+float4 main(float4 t : TEXCOORD, float4 pos : SV_POSITION) : sv_target
+{
+    return t / 10;
+}
+
+[test]
+draw quad
+probe (0, 0) f32(-0.2, 0.1, 0.2, -0.1)
+
+% The clamping doesn't happen on pixel shader output, not even when COLOR is
+% used instead of SV_TARGET
+[require]
+shader model < 4.0
+
+[vertex shader]
+void main(float4 pos : POSITION, out float4 out_pos : POSITION)
+{
+    out_pos = pos;
+}
+
+[pixel shader]
+float4 main(float4 pos : POSITION) : COLOR
+{
+    return float4(-2, 1, 2, -1);
+}
+
+[test]
+draw quad
+probe (0, 0) f32(-2, 1, 2, -1)
+
+[require]
+shader model < 3.0
+
+% Verify that the same behavior happens in shader model 1.
+[vertex shader d3dbc-hex]
+fffe0101                                              % vs_1_1
+00000051 a00f0000 c0000000 3f800000 40000000 bf800000 % def c0, -2, 1, 2, -1
+0000001f 80000000 900f0000                            % dcl_position v0
+00000001 d00f0000 a0e40000                            % mov oD0, c0
+00000001 c00f0000 90e40000                            % mov oPos, v0
+0000ffff                                              % end
+
+[pixel shader d3dbc-hex]
+ffff0101                                              % ps_1_1
+00000051 a00f0000 3dcccccd 3dcccccd 3dcccccd 3dcccccd % def c0, 0.1, 0.1, 0.1, 0.1
+00000005 800f0000 90e40000 a0e40000                   % mul r0, v0, c0
+0000ffff
+
+[test]
+draw quad
+probe (0, 0) f32(0.0, 0.1, 0.1, 0.0)

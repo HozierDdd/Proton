@@ -1,0 +1,137 @@
+[require]
+shader model >= 5.1
+options: unbounded-descriptor-arrays
+
+[pixel shader fail]
+SamplerState s[][];
+
+float4 main() : sv_target
+{
+    return 0;
+}
+
+[pixel shader fail]
+SamplerState s[2][];
+float4 main() : sv_target {return 0;}
+
+[pixel shader fail]
+float f[];
+float4 main() : sv_target {return 0;}
+
+[pixel shader fail]
+STRING s[];
+float4 main() : sv_target {return 0;}
+
+[require]
+shader model >= 5.1
+options: unbounded-descriptor-arrays
+descriptor-indexing
+descriptors
+
+[srv 0]
+format r32-uint
+size (buffer, 4)
+0x1
+
+[srv 1]
+format r32-uint
+size (buffer, 4)
+0x4
+
+[srv 2]
+format r32-uint
+size (buffer, 4)
+0x9
+
+[srv 3]
+format r32-uint
+size (buffer, 4)
+0x10
+
+[srv 4]
+format r32-uint
+size (buffer, 4)
+0x19
+
+[srv 5]
+format r32-uint
+size (buffer, 4)
+0x24
+
+[srv 6]
+format r32-uint
+size (buffer, 4)
+0x31
+
+[srv 7]
+format r32-uint
+size (buffer, 4)
+0x40
+
+[uav 0]
+format r32-uint
+size (buffer, 4)
+
+[uav 1]
+format r32-uint
+size (buffer, 4)
+
+[uav 2]
+format r32-uint
+size (buffer, 4)
+
+[uav 3]
+format r32-uint
+size (buffer, 4)
+
+[uav 4]
+format r32-uint
+size (buffer, 4)
+
+[uav 5]
+format r32-uint
+size (buffer, 4)
+
+[descriptors]
+t[2:9], space 2, srv 0
+u[1:6], space 3, uav 0
+
+% This is the shader from test_resource_arrays() in tests/d3d12.c. Once the
+% todo here is fixed, that test can be removed.
+[compute shader todo(sm<6)]
+cbuffer cb : register(b0)
+{
+    uint2 c[6];
+}
+
+Buffer<uint> t1[2] : register(t2, space2);
+Buffer<uint> t2[] : register(t4, space2);
+
+RWBuffer<uint> u1[2] : register(u1, space3);
+RWBuffer<uint> u2[] : register(u3, space3);
+
+    [numthreads(1, 1, 1)]
+void main()
+{
+    u1[c[0].x][0] = t1[c[0].y][0];
+    u1[c[1].x][0] = t1[c[1].y][0];
+    u2[c[2].x][0] = t2[c[2].y][0];
+    u2[c[3].x][0] = t2[c[3].y][0];
+    u2[c[4].x][0] = t2[c[4].y][0];
+    u2[c[5].x][0] = t2[c[5].y][0];
+}
+
+[test]
+write cbv-0  (0) u32(0, 0)
+write cbv-0  (4) u32(1, 1)
+write cbv-0  (8) u32(0, 5)
+write cbv-0 (12) u32(1, 4)
+write cbv-0 (16) u32(2, 0)
+write cbv-0 (20) u32(3, 1)
+todo(sm<6) dispatch 1 1 1
+probe uav-0 (0) u32(0x01)
+probe uav-1 (0) u32(0x04)
+probe uav-2 (0) u32(0x40)
+probe uav-3 (0) u32(0x31)
+probe uav-4 (0) u32(0x09)
+probe uav-5 (0) u32(0x10)

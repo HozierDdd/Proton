@@ -1,0 +1,14 @@
+[require]
+shader model >= 6.1
+barycentrics
+
+[pixel shader]
+float4 main(float3 bary : SV_Barycentrics) : SV_Target
+{
+    return float4(bary, 1.0f);
+}
+
+[test]
+draw quad
+probe (0, 0) f32(3.33420157e-01, 4.99652743e-01, 1.66927069e-01, 1.0) 8
+probe (100, 100) f32(3.50781262e-01, 4.30208296e-01, 2.19010398e-01, 1.0) 8

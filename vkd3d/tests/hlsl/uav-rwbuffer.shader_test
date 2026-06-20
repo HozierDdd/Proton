@@ -1,0 +1,590 @@
+[require]
+shader model >= 5.0
+
+% UAVs are implicitly allocated starting from the highest render target slot.
+% They cannot overlap render target slots, and also cannot be allocated any
+% lower than the highest render target.
+% This ceases to be true with shader model 5.1.
+
+[rtv 1]
+format r32g32b32a32-float
+size (2d, 640, 480)
+
+[pixel shader]
+struct s
+{
+    float3 a;
+};
+
+RWBuffer<float4> u : register(u2);
+RWBuffer<float> u1;
+RWBuffer<float2x2> u2;
+RWBuffer<struct s> u3;
+
+float4 main() : sv_target1
+{
+    u[0] = float4(11.1, 12.2, 13.3, 14.4);
+    return 0;
+}
+
+[pixel shader]
+struct s
+{
+    float3 a;
+};
+
+RasterizerOrderedBuffer<float4> u : register(u2);
+RasterizerOrderedBuffer<float> u1;
+RasterizerOrderedBuffer<float2x2> u2;
+RasterizerOrderedBuffer<struct s> u3;
+
+float4 main() : sv_target1
+{
+    u[0] = float4(11.1, 12.2, 13.3, 14.4);
+    return 0;
+}
+
+% Type size is too wide
+[pixel shader fail]
+struct s
+{
+    float3 a;
+    float2 b;
+};
+RWBuffer<struct s> u;
+
+float4 main() : sv_target1
+{
+    return 0;
+}
+
+[pixel shader fail(sm<6) todo]
+RWBuffer<double3> u;
+
+float4 main() : sv_target1
+{
+    return 0;
+}
+
+[pixel shader]
+RWBuffer<double2> u;
+
+float4 main() : sv_target1
+{
+    return 0;
+}
+
+[pixel shader fail]
+struct s
+{
+    float3 a;
+    float2 b;
+};
+RasterizerOrderedBuffer<struct s> u;
+
+float4 main() : sv_target1
+{
+    return 0;
+}
+
+[pixel shader fail(sm<6) todo]
+RasterizerOrderedBuffer<double3> u;
+
+float4 main() : sv_target1
+{
+    return 0;
+}
+
+[pixel shader]
+RasterizerOrderedBuffer<double2> u;
+
+float4 main() : sv_target1
+{
+    return 0;
+}
+
+% Array type
+[pixel shader fail(sm<6)]
+typedef float arr[2];
+RWBuffer<arr> u;
+
+float4 main() : sv_target1
+{
+    return 0;
+}
+
+% Object types
+[pixel shader fail(sm<6)]
+RWBuffer<Texture2D> u;
+
+float4 main() : sv_target1
+{
+    return 0;
+}
+
+[pixel shader fail]
+struct s
+{
+    Texture2D t;
+};
+RWBuffer<struct s> u;
+
+float4 main() : sv_target1
+{
+    return 0;
+}
+
+[pixel shader fail(sm<6)]
+typedef float arr[2];
+RasterizerOrderedBuffer<arr> u;
+
+float4 main() : sv_target1
+{
+    return 0;
+}
+
+% Object types
+[pixel shader fail(sm<6)]
+RasterizerOrderedBuffer<Texture2D> u;
+
+float4 main() : sv_target1
+{
+    return 0;
+}
+
+[pixel shader fail]
+struct s
+{
+    Texture2D t;
+};
+RasterizerOrderedBuffer<struct s> u;
+
+float4 main() : sv_target1
+{
+    return 0;
+}
+
+
+[require]
+shader model >= 5.0
+
+[uav 1]
+format r32g32b32a32-sint
+size (buffer, 2)
+1 2 3 4 5 6 7 8
+
+[pixel shader]
+RWBuffer<int4> u : register(u1);
+
+float4 main() : sv_target
+{
+    u[0] = int4(11, -12, 13, -14);
+    u[1] = int4(-15, 16, -17, 18);
+    return 0;
+}
+
+[test]
+draw quad
+probe uav-1 (0) i32(11, -12, 13, -14)
+probe uav-1 (1) i32(-15, 16, -17, 18)
+
+[uav 2]
+format r32g32b32a32-float
+size (buffer, 1)
+0.1 0.2 0.3 0.4
+
+[pixel shader]
+RWBuffer<float4> u : register(u2);
+
+float4 main() : sv_target1
+{
+    u[0] = float4(11.1, 12.2, 13.3, 14.4);
+    return 0;
+}
+
+[test]
+draw quad
+probe uav-2 (0) f32(11.1, 12.2, 13.3, 14.4)
+
+[require]
+shader model >= 6.2
+native-16-bit
+
+[uav 1]
+format r32g32b32a32-float
+size (buffer, 1)
+0 0 0 0
+
+[compute shader]
+uniform half4 h;
+RWBuffer<float4> u : register(u1);
+
+    [numthreads(1, 1, 1)]
+void main()
+{
+    u[0] = h;
+}
+
+[test]
+uniform 0 uint4 0x4a204990 0x4b404ab0 0 0
+dispatch 1 1 1
+probe uav-1 (0) f32(11.125, 12.25, 13.375, 14.5)
+
+[compute shader]
+uniform half4 h;
+RWBuffer<half4> u : register(u1);
+
+    [numthreads(1, 1, 1)]
+void main()
+{
+    u[0] = h;
+}
+
+[test]
+uniform 0 uint4 0x4a204990 0x4b404ab0 0 0
+dispatch 1 1 1
+probe uav-1 (0) f32(11.125, 12.25, 13.375, 14.5)
+
+[compute shader]
+uniform half h;
+RWBuffer<half> u : register(u1);
+
+    [numthreads(1, 1, 1)]
+void main()
+{
+    u[0] = h;
+}
+
+[test]
+uniform 0 uint 0x4990
+dispatch 1 1 1
+probe uav-1 (0) f32(11.125)
+
+[uav 1]
+format r32g32b32a32-uint
+size (buffer, 1)
+0 0 0 0
+
+[compute shader]
+uniform uint16_t4 h;
+RWBuffer<uint16_t4> u : register(u1);
+
+    [numthreads(1, 1, 1)]
+void main()
+{
+    u[0] = h;
+}
+
+[test]
+% Even if everything is defined as unsigned, implementations differ: WARP and
+% NVIDIA zero-extend, while AMD sign-extends; therefore we test neither.
+uniform 0 uint4 0x7ff4000b 0xe7ff3 0 0
+dispatch 1 1 1
+probe uav-1 (0) u32(0xb, 0x7ff4, 0x7ff3, 0xe)
+
+[uav 1]
+format r32g32b32a32-sint
+size (buffer, 1)
+0 0 0 0
+
+[compute shader]
+uniform int16_t4 h;
+RWBuffer<int16_t4> u : register(u1);
+
+    [numthreads(1, 1, 1)]
+void main()
+{
+    u[0] = h;
+}
+
+[test]
+% Again, implementations behave inconsistently for negative numbers.
+uniform 0 uint4 0x7ff4000b 0xe7ff3 0 0
+dispatch 1 1 1
+probe uav-1 (0) i32(11, 0x7ff4, 0x7ff3, 14)
+
+[rtv 0]
+format r32g32b32a32-sint
+size (2d, 640, 480)
+
+[uav 1]
+format r32g32b32a32-sint
+size (buffer, 1)
+-100 -1 1 100
+
+[pixel shader]
+RWBuffer<int16_t4> u : register(u1);
+
+int4 main() : sv_target
+{
+    return u[0];
+}
+
+[test]
+draw quad
+probe (0, 0) i32(-100, -1, 1, 100)
+
+[rtv 0]
+format r32g32b32a32-uint
+size (2d, 640, 480)
+
+[uav 1]
+format r32g32b32a32-uint
+size (buffer, 1)
+0 1 10 100
+
+[pixel shader]
+RWBuffer<uint16_t4> u : register(u1);
+
+uint4 main() : sv_target
+{
+    return u[0];
+}
+
+[test]
+draw quad
+probe (0, 0) u32(0, 1, 10, 100)
+
+[require]
+shader model >= 5.0
+format r32g32b32a32-float uav-load
+format r8g8b8a8-unorm uav-load
+format r8g8b8a8-uint uav-load
+
+[rtv-0]
+format r32g32b32a32-float
+size (2d, 640, 480)
+
+[uav-1]
+size (buffer, 4)
+format r32g32b32a32-float
+
+ 0.0  1.0  2.0  3.0
+ 4.0  5.0  6.0  7.0
+ 8.0  9.0 10.0 11.0
+12.0 13.0 14.0 15.0
+
+[pixel-shader]
+RWBuffer<float4> buffer : register(u1);
+
+float4 main(float4 pos : SV_Position) : sv_target
+{
+    if (pos.x == 0.5 && pos.y == 0.5)
+        buffer[0] = buffer[0] * 2 + 0.25;
+    return buffer[1];
+}
+
+[test]
+todo(msl) draw quad
+probe (0, 0) f32(4.0, 5.0, 6.0, 7.0)
+probe uav-1 (0) f32(0.25, 2.25, 4.25, 6.25)
+
+[pixel-shader]
+RWBuffer<float4> buffer : register(u1);
+
+float4 main(float4 pos : SV_Position) : sv_target
+{
+    if (pos.x == 0.5 && pos.y == 0.5)
+        buffer[3] = buffer[3] * 2 + 0.25;
+    return buffer[2];
+}
+
+[test]
+todo(msl) draw quad
+probe (0, 0) f32(8.0, 9.0, 10.0, 11.0)
+probe uav-1 (3) f32(24.25, 26.25, 28.25, 30.25)
+
+[uav-1]
+size (buffer, 4)
+format r32g32b32a32-float
+
+ 0.0  1.0  2.0  3.0
+ 4.0  5.0  6.0  7.0
+ 8.0  9.0 10.0 11.0
+12.0 13.0 14.0 15.0
+
+[pixel-shader]
+RWBuffer<snorm float4> buffer : register(u1);
+
+float4 main(float4 pos : SV_Position) : sv_target
+{
+    if (pos.x == 0.5 && pos.y == 0.5)
+        buffer[0] = buffer[0] * 2 + 0.25;
+    return buffer[1];
+}
+
+[test]
+todo(msl) draw quad
+probe (0, 0) f32(4.0, 5.0, 6.0, 7.0)
+probe uav-1 (0) f32(0.25, 2.25, 4.25, 6.25)
+
+[pixel-shader]
+RWBuffer<unorm float4> buffer : register(u1);
+
+float4 main(float4 pos : SV_Position) : sv_target
+{
+    if (pos.x == 0.5 && pos.y == 0.5)
+        buffer[3] = buffer[3] * 2 + 0.25;
+    return buffer[2];
+}
+
+[test]
+todo(msl) draw quad
+probe (0, 0) f32(8.0, 9.0, 10.0, 11.0)
+probe uav-1 (3) f32(24.25, 26.25, 28.25, 30.25)
+
+[uav-1]
+size (buffer, 4)
+format r8g8b8a8-unorm
+
+0x01020304
+0x05060708
+0x11121314
+0x15161718
+
+[pixel-shader]
+RWBuffer<snorm float4> buffer : register(u1);
+
+float4 main(float4 pos : SV_Position) : sv_target
+{
+    if (pos.x == 0.5 && pos.y == 0.5)
+        buffer[0] = buffer[0] * 2 + 0.25;
+    return buffer[1];
+}
+
+[test]
+todo(msl) draw quad
+probe (0, 0) f32(3.13725509e-02, 2.74509806e-02, 2.35294122e-02, 1.96078438e-02) 1
+probe uav-1 (0) u32(0x42444648)
+
+[pixel-shader]
+RWBuffer<unorm float4> buffer : register(u1);
+
+float4 main(float4 pos : SV_Position) : sv_target
+{
+    if (pos.x == 0.5 && pos.y == 0.5)
+        buffer[3] = buffer[3] * 2 + 0.25;
+    return buffer[2];
+}
+
+[test]
+todo(msl) draw quad
+probe (0, 0) f32(7.84313753e-02, 7.45098069e-02, 7.05882385e-02, 6.66666701e-02)
+probe uav-1 (3) u32(0x6a6c6e70)
+
+[uav-1]
+size (buffer, 4)
+format r8g8b8a8-unorm
+
+0x01020304
+0x05060708
+0x11121314
+0x15161718
+
+[pixel-shader]
+RWBuffer<float4> buffer : register(u1);
+
+float4 main(float4 pos : SV_Position) : sv_target
+{
+    if (pos.x == 0.5 && pos.y == 0.5)
+        buffer[0] = buffer[0] * 2 + 0.25;
+    return buffer[1];
+}
+
+[test]
+todo(msl) draw quad
+probe (0, 0) f32(3.13725509e-02, 2.74509806e-02, 2.35294122e-02, 1.96078438e-02) 1
+probe uav-1 (0) u32(0x42444648)
+
+[pixel-shader]
+RWBuffer<float4> buffer : register(u1);
+
+float4 main(float4 pos : SV_Position) : sv_target
+{
+    if (pos.x == 0.5 && pos.y == 0.5)
+        buffer[3] = buffer[3] * 2 + 0.25;
+    return buffer[2];
+}
+
+[test]
+todo(msl) draw quad
+probe (0, 0) f32(7.84313753e-02, 7.45098069e-02, 7.05882385e-02, 6.66666701e-02)
+probe uav-1 (3) u32(0x6a6c6e70)
+
+[uav-1]
+size (buffer, 4)
+format r8g8b8a8-uint
+
+0x01020304
+0x05060708
+0x11121314
+0x15161718
+
+[pixel-shader]
+RWBuffer<snorm float4> buffer : register(u1);
+
+float4 main(float4 pos : SV_Position) : sv_target
+{
+    if (pos.x == 0.5 && pos.y == 0.5)
+        buffer[0] = asfloat(asuint(buffer[0]) + 0x20);
+    return buffer[1];
+}
+
+[test]
+todo(msl) draw quad
+probe (0, 0) u32(8, 7, 6, 5)
+probe uav-1 (0) u32(0x21222324)
+
+[pixel-shader]
+RWBuffer<unorm float4> buffer : register(u1);
+
+float4 main(float4 pos : SV_Position) : sv_target
+{
+    if (pos.x == 0.5 && pos.y == 0.5)
+        buffer[3] = asfloat(asuint(buffer[3]) + 0x20);
+    return buffer[2];
+}
+
+[test]
+todo(msl) draw quad
+probe (0, 0) u32(0x14, 0x13, 0x12, 0x11)
+probe uav-1 (3) u32(0x35363738)
+
+[uav-1]
+size (buffer, 4)
+format r8g8b8a8-uint
+
+0x01020304
+0x05060708
+0x11121314
+0x15161718
+
+[pixel-shader]
+RWBuffer<float4> buffer : register(u1);
+
+float4 main(float4 pos : SV_Position) : sv_target
+{
+    if (pos.x == 0.5 && pos.y == 0.5)
+        buffer[0] = asfloat(asuint(buffer[0]) + 0x20);
+    return buffer[1];
+}
+
+[test]
+todo(msl) draw quad
+probe (0, 0) u32(8, 7, 6, 5)
+probe uav-1 (0) u32(0x21222324)
+
+[pixel-shader]
+RWBuffer<float4> buffer : register(u1);
+
+float4 main(float4 pos : SV_Position) : sv_target
+{
+    if (pos.x == 0.5 && pos.y == 0.5)
+        buffer[3] = asfloat(asuint(buffer[3]) + 0x20);
+    return buffer[2];
+}
+
+[test]
+todo(msl) draw quad
+probe (0, 0) u32(0x14, 0x13, 0x12, 0x11)
+probe uav-1 (3) u32(0x35363738)

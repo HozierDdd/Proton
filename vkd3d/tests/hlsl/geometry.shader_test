@@ -1,0 +1,423 @@
+[require]
+shader model >= 4.0
+geometry-shader
+
+[input layout]
+0 r32g32b32a32-float SV_POSITION
+0 r32g32b32a32-float COLOR
+
+[vb 0]
+0.0 0.0 1.0 1.0   0.0 1.0 1.0 1.0
+
+[vertex shader]
+struct vs_data
+{
+    float4 pos : SV_POSITION;
+    float4 color : COLOR;
+};
+
+void main(in struct vs_data vs_input, out struct vs_data vs_output)
+{
+    vs_output.pos = vs_input.pos;
+    vs_output.color = vs_input.color;
+}
+
+[geometry shader]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+    float4 color : COLOR;
+};
+
+    [maxvertexcount(4)]
+void main(point struct gs_data vin[1], inout TriangleStream<gs_data> vout)
+{
+    float offset = 0.2 * vin[0].pos.w;
+    gs_data v;
+
+    v.color = vin[0].color;
+
+    v.pos = float4(vin[0].pos.x - offset, vin[0].pos.y - offset, vin[0].pos.z, 1.0);
+    vout.Append(v);
+    v.pos = float4(vin[0].pos.x - offset, vin[0].pos.y + offset, vin[0].pos.z, 1.0);
+    vout.Append(v);
+    v.pos = float4(vin[0].pos.x + offset, vin[0].pos.y - offset, vin[0].pos.z, 1.0);
+    vout.Append(v);
+    v.pos = float4(vin[0].pos.x + offset, vin[0].pos.y + offset, vin[0].pos.z, 1.0);
+    vout.Append(v);
+}
+
+[pixel shader]
+struct ps_data
+{
+    float4 pos : SV_POSITION;
+    float4 color : COLOR;
+};
+
+float4 main(struct ps_data ps_input) : SV_Target
+{
+    return ps_input.color;
+}
+
+[test]
+clear rtv-0 f32(0.0, 0.0, 0.0, 0.0)
+todo(glsl) draw point list 1
+probe rtv-0 (320, 190) f32(0.0, 0.0, 0.0, 0.0)
+probe rtv-0 (255, 240) f32(0.0, 0.0, 0.0, 0.0)
+probe rtv-0 (320, 240) f32(0.0, 1.0, 1.0, 1.0)
+probe rtv-0 (385, 240) f32(0.0, 0.0, 0.0, 0.0)
+probe rtv-0 (320, 290) f32(0.0, 0.0, 0.0, 0.0)
+
+% Try different combinations of Append() and RestartStrip()
+[geometry-shader]
+struct gs_data
+{
+    float4 pos : SV_Position;
+};
+
+uniform uint variant;
+
+    [maxvertexcount(10)]
+void main(point struct gs_data vin[1], inout TriangleStream<gs_data> vout)
+{
+    gs_data v;
+
+    v.pos = float4(-1.0, 1.0, 0.0, 1.0);
+    vout.Append(v);
+    v.pos = float4(-1.0, -1.0, 0.0, 1.0);
+    vout.Append(v);
+    v.pos = float4(0.0, 1.0, 0.0, 1.0);
+    vout.Append(v);
+
+    if (variant == 1 || variant == 4)
+        vout.RestartStrip();
+
+    v.pos = float4(0.0, -1.0, 0.0, 1.0);
+    vout.Append(v);
+    v.pos = float4(1.0, 1.0, 0.0, 1.0);
+    vout.Append(v);
+
+    if (variant == 3 || variant == 4)
+        vout.RestartStrip();
+
+    if (variant != 2)
+    {
+        v.pos = float4(1.0, -1.0, 0.0, 1.0);
+        vout.Append(v);
+    }
+}
+
+[pixel-shader]
+float4 main() : SV_Target
+{
+    return float4(0.0, 1.0, 0.0, 1.0);
+}
+
+[test]
+write cbv-0 (0) u32(0)
+clear rtv-0 f32(0.0, 0.0, 0.0, 1.0)
+todo(glsl) draw point list 1
+probe rtv-0 (10, 10) f32(0.0, 1.0, 0.0, 1.0)
+probe rtv-0 (310, 10) f32(0.0, 1.0, 0.0, 1.0)
+probe rtv-0 (10, 470) f32(0.0, 1.0, 0.0, 1.0)
+probe rtv-0 (310, 470) f32(0.0, 1.0, 0.0, 1.0)
+probe rtv-0 (330, 10) f32(0.0, 1.0, 0.0, 1.0)
+probe rtv-0 (630, 10) f32(0.0, 1.0, 0.0, 1.0)
+probe rtv-0 (330, 470) f32(0.0, 1.0, 0.0, 1.0)
+probe rtv-0 (630, 470) f32(0.0, 1.0, 0.0, 1.0)
+
+write cbv-0 (0) u32(1)
+clear rtv-0 f32(0.0, 0.0, 0.0, 1.0)
+todo(glsl) draw point list 1
+probe rtv-0 (10, 10) f32(0.0, 1.0, 0.0, 1.0)
+probe rtv-0 (310, 10) f32(0.0, 1.0, 0.0, 1.0)
+probe rtv-0 (10, 470) f32(0.0, 0.0, 0.0, 1.0)
+probe rtv-0 (310, 470) f32(0.0, 0.0, 0.0, 1.0)
+probe rtv-0 (330, 10) f32(0.0, 0.0, 0.0, 1.0)
+probe rtv-0 (630, 10) f32(0.0, 0.0, 0.0, 1.0)
+probe rtv-0 (330, 470) f32(0.0, 1.0, 0.0, 1.0)
+probe rtv-0 (630, 470) f32(0.0, 1.0, 0.0, 1.0)
+
+write cbv-0 (0) u32(2)
+clear rtv-0 f32(0.0, 0.0, 0.0, 1.0)
+todo(glsl) draw point list 1
+probe rtv-0 (10, 10) f32(0.0, 1.0, 0.0, 1.0)
+probe rtv-0 (310, 10) f32(0.0, 1.0, 0.0, 1.0)
+probe rtv-0 (10, 470) f32(0.0, 1.0, 0.0, 1.0)
+probe rtv-0 (310, 470) f32(0.0, 1.0, 0.0, 1.0)
+probe rtv-0 (330, 10) f32(0.0, 1.0, 0.0, 1.0)
+probe rtv-0 (630, 10) f32(0.0, 1.0, 0.0, 1.0)
+probe rtv-0 (330, 470) f32(0.0, 0.0, 0.0, 1.0)
+probe rtv-0 (630, 470) f32(0.0, 0.0, 0.0, 1.0)
+
+write cbv-0 (0) u32(3)
+clear rtv-0 f32(0.0, 0.0, 0.0, 1.0)
+todo(glsl) draw point list 1
+probe rtv-0 (10, 10) f32(0.0, 1.0, 0.0, 1.0)
+probe rtv-0 (310, 10) f32(0.0, 1.0, 0.0, 1.0)
+probe rtv-0 (10, 470) f32(0.0, 1.0, 0.0, 1.0)
+probe rtv-0 (310, 470) f32(0.0, 1.0, 0.0, 1.0)
+probe rtv-0 (330, 10) f32(0.0, 1.0, 0.0, 1.0)
+probe rtv-0 (630, 10) f32(0.0, 1.0, 0.0, 1.0)
+probe rtv-0 (330, 470) f32(0.0, 0.0, 0.0, 1.0)
+probe rtv-0 (630, 470) f32(0.0, 0.0, 0.0, 1.0)
+
+write cbv-0 (0) u32(4)
+clear rtv-0 f32(0.0, 0.0, 0.0, 1.0)
+todo(glsl) draw point list 1
+probe rtv-0 (10, 10) f32(0.0, 1.0, 0.0, 1.0)
+probe rtv-0 (310, 10) f32(0.0, 1.0, 0.0, 1.0)
+probe rtv-0 (10, 470) f32(0.0, 0.0, 0.0, 1.0)
+probe rtv-0 (310, 470) f32(0.0, 0.0, 0.0, 1.0)
+probe rtv-0 (330, 10) f32(0.0, 0.0, 0.0, 1.0)
+probe rtv-0 (630, 10) f32(0.0, 0.0, 0.0, 1.0)
+probe rtv-0 (330, 470) f32(0.0, 0.0, 0.0, 1.0)
+probe rtv-0 (630, 470) f32(0.0, 0.0, 0.0, 1.0)
+
+% If maxvertexcount() is insufficient, the excess vertices are ignored, no validation error or warning is emitted.
+[geometry-shader]
+struct gs_data
+{
+    float4 pos : SV_Position;
+};
+
+    [maxvertexcount(5)]
+void main(point struct gs_data vin[1], inout TriangleStream<gs_data> vout)
+{
+    gs_data v;
+
+    v.pos = float4(-1.0, 1.0, 0.0, 1.0);
+    vout.Append(v);
+    v.pos = float4(-1.0, -1.0, 0.0, 1.0);
+    vout.Append(v);
+    v.pos = float4(0.0, 1.0, 0.0, 1.0);
+    vout.Append(v);
+    v.pos = float4(0.0, -1.0, 0.0, 1.0);
+    vout.Append(v);
+    v.pos = float4(1.0, 1.0, 0.0, 1.0);
+    vout.Append(v);
+    v.pos = float4(1.0, -1.0, 0.0, 1.0);
+    vout.Append(v);
+}
+
+[test]
+clear rtv-0 f32(0.0, 0.0, 0.0, 1.0)
+todo(glsl) draw point list 1
+probe rtv-0 (10, 10) f32(0.0, 1.0, 0.0, 1.0)
+probe rtv-0 (310, 10) f32(0.0, 1.0, 0.0, 1.0)
+probe rtv-0 (10, 470) f32(0.0, 1.0, 0.0, 1.0)
+probe rtv-0 (310, 470) f32(0.0, 1.0, 0.0, 1.0)
+probe rtv-0 (330, 10) f32(0.0, 1.0, 0.0, 1.0)
+probe rtv-0 (630, 10) f32(0.0, 1.0, 0.0, 1.0)
+probe rtv-0 (330, 470) f32(0.0, 0.0, 0.0, 1.0)
+probe rtv-0 (630, 470) f32(0.0, 0.0, 0.0, 1.0)
+
+[geometry-shader]
+struct gs_data
+{
+    float4 pos : SV_Position;
+};
+
+    [maxvertexcount(4)]
+void main(point struct gs_data vin[1], inout TriangleStream<gs_data> vout)
+{
+    gs_data v;
+
+    v.pos = float4(-1.0, 1.0, 0.0, 1.0);
+    vout.Append(v);
+    v.pos = float4(-1.0, -1.0, 0.0, 1.0);
+    vout.Append(v);
+    v.pos = float4(0.0, 1.0, 0.0, 1.0);
+    vout.Append(v);
+    v.pos = float4(0.0, -1.0, 0.0, 1.0);
+    vout.Append(v);
+    v.pos = float4(1.0, 1.0, 0.0, 1.0);
+    vout.Append(v);
+    v.pos = float4(1.0, -1.0, 0.0, 1.0);
+    vout.Append(v);
+}
+
+[test]
+clear rtv-0 f32(0.0, 0.0, 0.0, 1.0)
+todo(glsl) draw point list 1
+probe rtv-0 (10, 10) f32(0.0, 1.0, 0.0, 1.0)
+probe rtv-0 (310, 10) f32(0.0, 1.0, 0.0, 1.0)
+probe rtv-0 (10, 470) f32(0.0, 1.0, 0.0, 1.0)
+probe rtv-0 (310, 470) f32(0.0, 1.0, 0.0, 1.0)
+probe rtv-0 (330, 10) f32(0.0, 0.0, 0.0, 1.0)
+probe rtv-0 (630, 10) f32(0.0, 0.0, 0.0, 1.0)
+probe rtv-0 (330, 470) f32(0.0, 0.0, 0.0, 1.0)
+probe rtv-0 (630, 470) f32(0.0, 0.0, 0.0, 1.0)
+
+[geometry-shader]
+struct gs_data
+{
+    float4 pos : SV_Position;
+};
+
+    [maxvertexcount(2)]
+void main(point struct gs_data vin[1], inout TriangleStream<gs_data> vout)
+{
+    gs_data v;
+
+    v.pos = float4(-1.0, 1.0, 0.0, 1.0);
+    vout.Append(v);
+    v.pos = float4(-1.0, -1.0, 0.0, 1.0);
+    vout.Append(v);
+    v.pos = float4(0.0, 1.0, 0.0, 1.0);
+    vout.Append(v);
+    v.pos = float4(0.0, -1.0, 0.0, 1.0);
+    vout.Append(v);
+    v.pos = float4(1.0, 1.0, 0.0, 1.0);
+    vout.Append(v);
+    v.pos = float4(1.0, -1.0, 0.0, 1.0);
+    vout.Append(v);
+}
+
+[test]
+clear rtv-0 f32(0.0, 0.0, 0.0, 1.0)
+todo(glsl) draw point list 1
+probe rtv-0 (10, 10) f32(0.0, 0.0, 0.0, 1.0)
+probe rtv-0 (310, 10) f32(0.0, 0.0, 0.0, 1.0)
+probe rtv-0 (10, 470) f32(0.0, 0.0, 0.0, 1.0)
+probe rtv-0 (310, 470) f32(0.0, 0.0, 0.0, 1.0)
+probe rtv-0 (330, 10) f32(0.0, 0.0, 0.0, 1.0)
+probe rtv-0 (630, 10) f32(0.0, 0.0, 0.0, 1.0)
+probe rtv-0 (330, 470) f32(0.0, 0.0, 0.0, 1.0)
+probe rtv-0 (630, 470) f32(0.0, 0.0, 0.0, 1.0)
+
+% Points that are dropped because the strip is restarted do count towards the
+% maximum vertex count, even if they never contributed to any primitive.
+% It seems that RADV and radeonsi don't count them.
+% The Vulkan spec doesn't seem to have precise wording for what should happen,
+% so for the moment I'm leaving it as a todo.
+[geometry-shader]
+struct gs_data
+{
+    float4 pos : SV_Position;
+};
+
+    [maxvertexcount(3)]
+void main(point struct gs_data vin[1], inout TriangleStream<gs_data> vout)
+{
+    gs_data v;
+
+    v.pos = float4(-1.0, 1.0, 0.0, 1.0);
+    vout.Append(v);
+    vout.RestartStrip();
+    v.pos = float4(-1.0, -1.0, 0.0, 1.0);
+    vout.Append(v);
+    v.pos = float4(0.0, 1.0, 0.0, 1.0);
+    vout.Append(v);
+    v.pos = float4(0.0, -1.0, 0.0, 1.0);
+    vout.Append(v);
+    v.pos = float4(1.0, 1.0, 0.0, 1.0);
+    vout.Append(v);
+    v.pos = float4(1.0, -1.0, 0.0, 1.0);
+    vout.Append(v);
+}
+
+[test]
+clear rtv-0 f32(0.0, 0.0, 0.0, 1.0)
+todo(glsl) draw point list 1
+probe rtv-0 (10, 10) f32(0.0, 0.0, 0.0, 1.0)
+probe rtv-0 (310, 10) f32(0.0, 0.0, 0.0, 1.0)
+todo(radv | radeonsi) probe rtv-0 (10, 470) f32(0.0, 0.0, 0.0, 1.0)
+todo(radv | radeonsi) probe rtv-0 (310, 470) f32(0.0, 0.0, 0.0, 1.0)
+probe rtv-0 (330, 10) f32(0.0, 0.0, 0.0, 1.0)
+probe rtv-0 (630, 10) f32(0.0, 0.0, 0.0, 1.0)
+probe rtv-0 (330, 470) f32(0.0, 0.0, 0.0, 1.0)
+probe rtv-0 (630, 470) f32(0.0, 0.0, 0.0, 1.0)
+
+[geometry-shader]
+struct gs_data
+{
+    float4 pos : SV_Position;
+};
+
+    [maxvertexcount(4)]
+void main(point struct gs_data vin[1], inout TriangleStream<gs_data> vout)
+{
+    gs_data v;
+
+    v.pos = float4(-1.0, 1.0, 0.0, 1.0);
+    vout.Append(v);
+    vout.RestartStrip();
+    v.pos = float4(-1.0, -1.0, 0.0, 1.0);
+    vout.Append(v);
+    v.pos = float4(0.0, 1.0, 0.0, 1.0);
+    vout.Append(v);
+    v.pos = float4(0.0, -1.0, 0.0, 1.0);
+    vout.Append(v);
+    v.pos = float4(1.0, 1.0, 0.0, 1.0);
+    vout.Append(v);
+    v.pos = float4(1.0, -1.0, 0.0, 1.0);
+    vout.Append(v);
+}
+
+[test]
+clear rtv-0 f32(0.0, 0.0, 0.0, 1.0)
+todo(glsl) draw point list 1
+probe rtv-0 (10, 10) f32(0.0, 0.0, 0.0, 1.0)
+probe rtv-0 (310, 10) f32(0.0, 0.0, 0.0, 1.0)
+probe rtv-0 (10, 470) f32(0.0, 1.0, 0.0, 1.0)
+probe rtv-0 (310, 470) f32(0.0, 1.0, 0.0, 1.0)
+todo(radv | radeonsi) probe rtv-0 (330, 10) f32(0.0, 0.0, 0.0, 1.0)
+todo(radv | radeonsi) probe rtv-0 (630, 10) f32(0.0, 0.0, 0.0, 1.0)
+probe rtv-0 (330, 470) f32(0.0, 0.0, 0.0, 1.0)
+probe rtv-0 (630, 470) f32(0.0, 0.0, 0.0, 1.0)
+
+[require]
+shader model >= 5.0
+geometry-shader
+
+[geometry shader todo]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+    float4 color : COLOR;
+};
+
+    [maxvertexcount(4)][instance(5)]
+void main(point struct gs_data vin[1], inout TriangleStream<gs_data> vout,
+        uint inst_id : SV_GSInstanceID)
+{
+    float offset = 0.2 * vin[0].pos.w;
+    gs_data v;
+
+    if (inst_id != 3)
+        return;
+
+    v.color = vin[0].color;
+
+    v.pos = float4(vin[0].pos.x - offset, vin[0].pos.y - offset, vin[0].pos.z, 1.0);
+    vout.Append(v);
+    v.pos = float4(vin[0].pos.x - offset, vin[0].pos.y + offset, vin[0].pos.z, 1.0);
+    vout.Append(v);
+    v.pos = float4(vin[0].pos.x + offset, vin[0].pos.y - offset, vin[0].pos.z, 1.0);
+    vout.Append(v);
+    v.pos = float4(vin[0].pos.x + offset, vin[0].pos.y + offset, vin[0].pos.z, 1.0);
+    vout.Append(v);
+}
+
+[pixel-shader]
+struct ps_data
+{
+    float4 pos : SV_POSITION;
+    float4 color : COLOR;
+};
+
+float4 main(struct ps_data ps_input) : SV_Target
+{
+    return ps_input.color;
+}
+
+[test]
+clear rtv-0 f32(0.0, 0.0, 0.0, 0.0)
+todo draw point list 1
+probe rtv-0 (320, 190) f32(0.0, 0.0, 0.0, 0.0)
+probe rtv-0 (255, 240) f32(0.0, 0.0, 0.0, 0.0)
+% Broken on WARP with SM < 6
+if(!warp | sm>=6) probe rtv-0 (320, 240) f32(0.0, 1.0, 1.0, 1.0)
+probe rtv-0 (385, 240) f32(0.0, 0.0, 0.0, 0.0)
+probe rtv-0 (320, 290) f32(0.0, 0.0, 0.0, 0.0)

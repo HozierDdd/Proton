@@ -1,0 +1,50 @@
+[require]
+shader model = 3.0
+
+[pixel shader d3dbc-hex]
+ffff0300                                                % ps_3_0
+05000051 a00f0000 41a00000 42200000 00000000 00000000   % def c0, 20, 40, 0, 0
+01000028 e0e40800                                       % if b0
+02000001 800f0800 a0000000                              %   mov oC0, c0.x
+0000002a                                                % else
+02000001 800f0800 a0550000                              %   mov oC0, c0.y
+0000002b                                                % endif
+0000ffff                                                % end
+
+[test]
+write cbv-bool (0) u32(1)
+draw quad
+probe (0, 0) f32(20, 20, 20, 20)
+write cbv-bool (0) u32(0)
+draw quad
+probe (0, 0) f32(40, 40, 40, 40)
+
+[pixel shader d3dbc-hex]
+ffff0300                                                % ps_3_0
+05000051 a00f0000 41800000 42000000 00000000 00000000   % def c0, 16, 32, 0, 0
+0200002f e00f0800 00000001                              % defb b0, true
+01000028 e0e40800                                       % if b0
+02000001 800f0800 a0000000                              %   mov oC0, c0.x
+0000002a                                                % else
+02000001 800f0800 a0550000                              %   mov oC0, c0.y
+0000002b                                                % endif
+0000ffff                                                % end
+
+[test]
+draw quad
+probe (0, 0) f32(16, 16, 16, 16)
+
+[pixel shader d3dbc-hex]
+ffff0300                                                % ps_3_0
+05000051 a00f0000 bf800000 3f000000 00000000 00000000   % def c0, -1, 0.5, 0, 0
+0200002f e00f0800 00000000                              % defb b0, false
+01000028 e0e40800                                       % if b0
+02000001 800f0800 a0000000                              %   mov oC0, c0.x
+0000002a                                                % else
+02000001 800f0800 a0550000                              %   mov oC0, c0.y
+0000002b                                                % endif
+0000ffff                                                % end
+
+[test]
+draw quad
+probe (0, 0) f32(0.5, 0.5, 0.5, 0.5)

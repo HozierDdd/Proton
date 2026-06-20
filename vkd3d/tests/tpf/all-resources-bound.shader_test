@@ -1,0 +1,20 @@
+[require]
+shader model = 5.1
+
+[pixel shader dxbc-tpf-hex]
+43425844 fdd00721 396970bd 059c4b9a 421b3b67 00000001 000000b4  % DXBC header
+00000003 0000002c 0000003c 00000070                             %
+4e475349 00000008 00000000 00000008                             % .input
+4e47534f 0000002c 00000001 00000008                             % .output
+00000020 00000000 00000000 00000003 00000000 0000000f           % .param sv_target.xyzw, o0.xyzw, float, TARGET
+745f7673 65677261 abab0074                                      %
+58454853 0000003c 00000051 0000000f                             % .text ps_5_1
+0108086a                                                        % dcl_globalFlags refactoringAllowed | allResourcesBound
+03000065 001020f2 00000000                                      % dcl_output o0.xyzw
+08000036 001020f2 00000000                                      % mov o0.xyzw,
+         00004002 00000000 3f800000 00000000 3f800000           %     l(0.0, 1.0, 0.0, 1.0)
+0100003e                                                        % ret
+
+[test]
+draw quad
+probe (0, 0) f32(0.0, 1.0, 0.0, 1.0)
