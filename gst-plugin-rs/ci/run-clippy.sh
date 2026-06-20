@@ -1,0 +1,14 @@
+#! /bin/bash
+
+set -ex
+
+rustc --version
+cargo --version
+cargo clippy --version
+
+cpus=$(nproc || sysctl -n hw.ncpu)
+CARGO_FLAGS="--color=always -j${FDO_CI_CONCURRENT:-$cpus}"
+
+for cfg in "" "--all-features --exclude gst-plugin-gtk4 --exclude gst-plugin-whisper" "--no-default-features --exclude gst-plugin-burn --exclude gst-plugin-compress"; do
+    cargo clippy $CARGO_FLAGS --locked --all --all-targets $cfg -- $CLIPPY_LINTS
+done

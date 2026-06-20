@@ -1,0 +1,302 @@
+// SPDX-License-Identifier: MPL-2.0
+
+use crate::tests::{ExpectedBuffer, ExpectedPacket, Source, run_test_pipeline_and_validate_buffer};
+use anyhow::bail;
+use gst_video::prelude::*;
+
+fn init() {
+    use std::sync::Once;
+    static INIT: Once = Once::new();
+
+    INIT.call_once(|| {
+        gst::init().unwrap();
+        crate::plugin_register_static().expect("rtpvraw test");
+    });
+}
+
+#[allow(clippy::manual_div_ceil)]
+fn calc_active_bytes_per_line(video_info: &gst_video::VideoInfo) -> [usize; 4] {
+    use gst_video::VideoFormat::*;
+
+    let width = video_info.width() as usize;
+
+    match video_info.format() {
+        Rgb | Rgba | Bgr | Bgra | V308 | Uyvy => {
+            let pstride = video_info.comp_pstride(0) as usize;
+            [pstride * width, 0, 0, 0]
+        }
+        I420 | Uyvp => {
+            // 4:2:x
+            [
+                width,
+                width.next_multiple_of(2) / 2,
+                width.next_multiple_of(2) / 2,
+                0,
+            ]
+        }
+        Y41b => {
+            // 4:1:x
+            [
+                width,
+                width.next_multiple_of(4) / 4,
+                width.next_multiple_of(4) / 4,
+                0,
+            ]
+        }
+        fmt => todo!("implement for {fmt}"),
+    }
+}
+
+fn create_test_frame(video_info: &gst_video::VideoInfo, frame_idx: u64) -> gst::Buffer {
+    let size = video_info.size();
+    let mut buffer = gst::Buffer::with_size(size).unwrap();
+    {
+        let buffer = buffer.get_mut().unwrap();
+        buffer.set_pts(gst::ClockTime::from_seconds(frame_idx));
+
+        let mut frame =
+            gst_video::VideoFrameRef::from_buffer_ref_writable(buffer, video_info).unwrap();
+
+        let n_active_bytes_per_line = calc_active_bytes_per_line(video_info);
+
+        // Fill with an increasing bit pattern that can be checked again later
+        let mut idx = frame_idx;
+        for plane_idx in 0..frame.n_planes() {
+            let stride = frame.plane_stride()[plane_idx as usize] as usize;
+            let plane = frame.plane_data_mut(plane_idx).unwrap();
+
+            for line in plane.chunks_mut(stride) {
+                // Skip padding at the end of each line
+                let n_active_bytes = n_active_bytes_per_line[plane_idx as usize];
+
+                for b in line[0..n_active_bytes].iter_mut() {
+                    *b = (idx & 0xff) as u8;
+                    idx = idx.wrapping_add(1);
+                }
+            }
+        }
+    }
+
+    buffer
+}
+
+fn check_test_frame(
+    buffer: &gst::Buffer,
+    video_info: &gst_video::VideoInfo,
+    frame_idx: u64,
+) -> anyhow::Result<()> {
+    let frame = gst_video::VideoFrameRef::from_buffer_ref_readable(buffer, video_info).unwrap();
+
+    let n_active_bytes_per_line = calc_active_bytes_per_line(video_info);
+
+    let mut idx = frame_idx;
+    for plane_idx in 0..frame.n_planes() {
+        let stride = frame.plane_stride()[plane_idx as usize] as usize;
+        let plane = frame.plane_data(plane_idx).unwrap();
+
+        for (y, line) in plane.chunks(stride).enumerate() {
+            // Skip padding at the end of each line
+            let n_active_bytes = n_active_bytes_per_line[plane_idx as usize];
+
+            for (x, b) in line[0..n_active_bytes].iter().enumerate() {
+                let expected_byte = (idx & 0xff) as u8;
+                let actual_byte = *b;
+
+                if actual_byte != expected_byte {
+                    bail!(
+                        "Plane {plane_idx}: Expected byte {expected_byte} at position ({x}, {y})\
+                        but got {actual_byte}, stride={stride}, active_bytes={n_active_bytes}",
+                    );
+                }
+                idx = idx.wrapping_add(1);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn run_raw_video_test(
+    format: gst_video::VideoFormat,
+    width: u32,
+    height: u32,
+    expected_packets_per_frame: usize,
+) {
+    init();
+
+    let video_info = gst_video::VideoInfo::builder(format, width, height)
+        .build()
+        .unwrap();
+    let caps = video_info.to_caps().unwrap();
+
+    let buffers = (0..3)
+        .map(|i| create_test_frame(&video_info, i))
+        .collect::<Vec<_>>();
+
+    let expected_pay = (0..3)
+        .map(|i| {
+            (0..expected_packets_per_frame)
+                .map(|j| {
+                    ExpectedPacket::builder()
+                        .pts(gst::ClockTime::from_seconds(i))
+                        .flags(if j == expected_packets_per_frame - 1 {
+                            gst::BufferFlags::MARKER
+                        } else if i == 0 && j == 0 {
+                            gst::BufferFlags::DISCONT
+                        } else {
+                            gst::BufferFlags::empty()
+                        })
+                        .pt(96)
+                        .rtp_time(i as u32 * 90_000)
+                        .marker_bit(j == expected_packets_per_frame - 1)
+                        // FIXME: Should also check sizes but the pattern is not simple
+                        .build()
+                })
+                .collect()
+        })
+        .collect();
+
+    let expected_depay = (0..3)
+        .map(|i| {
+            vec![
+                ExpectedBuffer::builder()
+                    .pts(gst::ClockTime::from_seconds(i))
+                    .size(video_info.size())
+                    .flags(if i == 0 {
+                        gst::BufferFlags::DISCONT
+                    } else {
+                        gst::BufferFlags::empty()
+                    })
+                    .build(),
+            ]
+        })
+        .collect();
+
+    run_test_pipeline_and_validate_buffer(
+        Source::Buffers(caps, buffers),
+        "rtpvrawpay2",
+        "rtpvrawdepay2",
+        expected_pay,
+        expected_depay,
+        move |buffer, list_idx, buffer_idx| {
+            if buffer_idx != 0 {
+                bail!("Got multiple output buffers per frame");
+            }
+
+            if list_idx >= 3 {
+                bail!("Too many frames (got {}, expected 3)", list_idx + 1);
+            }
+
+            check_test_frame(buffer, &video_info, list_idx as u64)
+        },
+    );
+}
+
+#[test]
+fn test_rtpvraw_rgb() {
+    run_raw_video_test(gst_video::VideoFormat::Rgb, 320, 240, 168);
+    run_raw_video_test(gst_video::VideoFormat::Rgb, 320, 241, 169);
+    run_raw_video_test(gst_video::VideoFormat::Rgb, 320, 239, 168);
+    run_raw_video_test(gst_video::VideoFormat::Rgb, 321, 240, 169);
+    run_raw_video_test(gst_video::VideoFormat::Rgb, 319, 240, 168);
+    run_raw_video_test(gst_video::VideoFormat::Rgb, 321, 241, 170);
+    run_raw_video_test(gst_video::VideoFormat::Rgb, 319, 239, 167);
+}
+
+#[test]
+fn test_rtpvraw_bgr() {
+    run_raw_video_test(gst_video::VideoFormat::Bgr, 320, 240, 168);
+    run_raw_video_test(gst_video::VideoFormat::Bgr, 320, 241, 169);
+    run_raw_video_test(gst_video::VideoFormat::Bgr, 320, 239, 168);
+    run_raw_video_test(gst_video::VideoFormat::Bgr, 321, 240, 169);
+    run_raw_video_test(gst_video::VideoFormat::Bgr, 319, 240, 168);
+    run_raw_video_test(gst_video::VideoFormat::Bgr, 321, 241, 170);
+    run_raw_video_test(gst_video::VideoFormat::Bgr, 319, 239, 167);
+}
+
+#[test]
+fn test_rtpvraw_rgba() {
+    run_raw_video_test(gst_video::VideoFormat::Rgba, 320, 240, 224);
+    run_raw_video_test(gst_video::VideoFormat::Rgba, 320, 241, 225);
+    run_raw_video_test(gst_video::VideoFormat::Rgba, 320, 239, 224);
+    run_raw_video_test(gst_video::VideoFormat::Rgba, 321, 240, 225);
+    run_raw_video_test(gst_video::VideoFormat::Rgba, 319, 240, 224);
+    run_raw_video_test(gst_video::VideoFormat::Rgba, 321, 241, 226);
+    run_raw_video_test(gst_video::VideoFormat::Rgba, 319, 239, 223);
+}
+
+#[test]
+fn test_rtpvraw_bgra() {
+    run_raw_video_test(gst_video::VideoFormat::Bgra, 320, 240, 224);
+    run_raw_video_test(gst_video::VideoFormat::Bgra, 320, 241, 225);
+    run_raw_video_test(gst_video::VideoFormat::Bgra, 320, 239, 224);
+    run_raw_video_test(gst_video::VideoFormat::Bgra, 321, 240, 225);
+    run_raw_video_test(gst_video::VideoFormat::Bgra, 319, 240, 224);
+    run_raw_video_test(gst_video::VideoFormat::Bgra, 321, 241, 226);
+    run_raw_video_test(gst_video::VideoFormat::Bgra, 319, 239, 223);
+}
+
+#[test]
+fn test_rtpvraw_v308() {
+    run_raw_video_test(gst_video::VideoFormat::V308, 320, 240, 168);
+    run_raw_video_test(gst_video::VideoFormat::V308, 320, 241, 169);
+    run_raw_video_test(gst_video::VideoFormat::V308, 320, 239, 168);
+    run_raw_video_test(gst_video::VideoFormat::V308, 321, 240, 169);
+    run_raw_video_test(gst_video::VideoFormat::V308, 319, 240, 168);
+    run_raw_video_test(gst_video::VideoFormat::V308, 321, 241, 170);
+    run_raw_video_test(gst_video::VideoFormat::V308, 319, 239, 167);
+}
+
+#[test]
+fn test_rtpvraw_uyvy() {
+    run_raw_video_test(gst_video::VideoFormat::Uyvy, 320, 240, 113);
+    run_raw_video_test(gst_video::VideoFormat::Uyvy, 320, 241, 113);
+    run_raw_video_test(gst_video::VideoFormat::Uyvy, 320, 239, 112);
+    run_raw_video_test(gst_video::VideoFormat::Uyvy, 321, 240, 114);
+    run_raw_video_test(gst_video::VideoFormat::Uyvy, 319, 240, 113);
+    run_raw_video_test(gst_video::VideoFormat::Uyvy, 321, 241, 114);
+    run_raw_video_test(gst_video::VideoFormat::Uyvy, 319, 239, 112);
+}
+
+#[test]
+fn test_rtpvraw_i420() {
+    run_raw_video_test(gst_video::VideoFormat::I420, 320, 240, 84);
+    run_raw_video_test(gst_video::VideoFormat::I420, 320, 241, 85);
+    run_raw_video_test(gst_video::VideoFormat::I420, 320, 239, 84);
+    run_raw_video_test(gst_video::VideoFormat::I420, 321, 240, 85);
+    run_raw_video_test(gst_video::VideoFormat::I420, 319, 240, 84);
+    run_raw_video_test(gst_video::VideoFormat::I420, 321, 241, 86);
+    run_raw_video_test(gst_video::VideoFormat::I420, 319, 239, 84);
+}
+
+#[test]
+fn test_rtpvraw_y41b() {
+    run_raw_video_test(gst_video::VideoFormat::Y41b, 320, 240, 85);
+    run_raw_video_test(gst_video::VideoFormat::Y41b, 320, 241, 85);
+    run_raw_video_test(gst_video::VideoFormat::Y41b, 320, 239, 85);
+    run_raw_video_test(gst_video::VideoFormat::Y41b, 321, 240, 86);
+    run_raw_video_test(gst_video::VideoFormat::Y41b, 319, 240, 85);
+    run_raw_video_test(gst_video::VideoFormat::Y41b, 321, 241, 86);
+    run_raw_video_test(gst_video::VideoFormat::Y41b, 319, 239, 85);
+}
+
+#[test]
+fn test_rtpvraw_uyvp() {
+    run_raw_video_test(gst_video::VideoFormat::Uyvp, 320, 240, 141);
+    run_raw_video_test(gst_video::VideoFormat::Uyvp, 320, 241, 142);
+    run_raw_video_test(gst_video::VideoFormat::Uyvp, 320, 239, 140);
+
+    // Some versions of GStreamer (< 1.28.2) have a too-small default stride for odd widths
+    let video_info = gst_video::VideoInfo::builder(gst_video::VideoFormat::Uyvp, 321, 240)
+        .build()
+        .unwrap();
+
+    if video_info.stride()[0] >= 805 {
+        run_raw_video_test(gst_video::VideoFormat::Uyvp, 321, 240, 142);
+        run_raw_video_test(gst_video::VideoFormat::Uyvp, 319, 240, 141);
+        run_raw_video_test(gst_video::VideoFormat::Uyvp, 321, 241, 142);
+        run_raw_video_test(gst_video::VideoFormat::Uyvp, 319, 239, 140);
+    } else {
+        eprintln!("Skipping test, libgstvideo has too small strides for odd widths for UYVP");
+    }
+}
