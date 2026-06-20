@@ -1,0 +1,4 @@
+.gitattributes          export-ignore
+.github                 export-ignore
+
+graphene.doap           export-ignore
